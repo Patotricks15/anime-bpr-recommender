@@ -1,0 +1,52 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+We implemented BPR matrix factorization end to end: implicit-feedback
+construction, iterative core filtering, point-in-time feature engineering,
+vectorized triplet SGD, full-catalogue ranking evaluation, and a
+parity-tested serving path deployed by Terraform against a local AWS
+emulator.
+
+The measured outcome is that a tuned item-$k$NN baseline edges out tuned BPR
+on this data (NDCG@10 $0.1305$ versus $0.1248$). We report it because the
+alternative --- tuning until the flagship model wins --- is the specific
+failure mode that Dacrema et al.~\cite{dacrema2019} documented across a
+large body of published recommender work, and avoiding it was an explicit
+goal of this project.
+
+\subsection{What transfers}
+
+The reusable artifacts of this project are not the model weights:
+
+\begin{itemize}
+  \item \textbf{A leakage harness.} Future-event injection, fit-partition
+        isolation, and label destruction, as executable tests rather than
+        prose. The injection test surfaced a genuine dtype-promotion defect
+        in the feature layer.
+  \item \textbf{A parity harness.} Asserting that the served ranking equals
+        the evaluated ranking closes the gap where good offline numbers
+        quietly fail to reach production.
+  \item \textbf{An honest selection protocol.} Validation-only tuning, with
+        the same grid budget extended to the baselines.
+\end{itemize}
+
+\subsection{Future work}
+
+\paragraph{Popularity-weighted sampling.} Drawing negatives
+$j$ with probability proportional to $c_j^{\alpha}$ rather than uniformly
+produces harder triplets as training progresses, and is the most likely
+single change to close the observed gap.
+
+\paragraph{Confidence intervals.} Repeating the comparison across seeds and
+reporting intervals would establish whether the $0.006$ NDCG gap is
+significant.
+
+\paragraph{Hybrid scoring.} The content features in
+Table~\ref{tab:features} are currently consumed only for cold-start fallback.
+Folding them into the scorer, $\hat{x}_{ui} = \pvec_u^{\top}\qvec_i + b_i +
+\mathbf{w}^{\top}\boldsymbol{\phi}_{ui}$, would let the model exploit genre
+affinity directly.
+
+\paragraph{Real timestamps.} Evaluating on a dataset with genuine event times
+would replace the chronology proxy and make the temporal split defensible as
+a simulation of production.

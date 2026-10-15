@@ -1,0 +1,81 @@
+\section{Evaluation protocol}
+\label{sec:evaluation}
+
+\subsection{Partitioning}
+
+We use leave-last-one-out per user. Ordering each user's interactions by the
+temporal proxy of Section~\ref{sec:data}, the final interaction forms the test
+instance, the penultimate one the validation instance, and everything earlier
+is training data.
+
+Users with fewer than $k_{\min} + 2$ interactions cannot yield both held-out
+instances without starving their own training history; these users contribute
+entirely to the training partition and are not evaluated. Reporting metrics
+over users whose training history is empty would measure the popularity prior
+rather than personalisation.
+
+\subsection{Candidate set}
+
+For each evaluated user we rank the \emph{entire} catalogue minus that user's
+training history:
+\begin{equation}
+  C_u = \Iset \setminus \Iset_u^{+,\text{train}} .
+\end{equation}
+
+Excluding the history is not a detail. Without it, a model is rewarded for
+re-recommending already-consumed titles, which inflates every metric and
+corresponds to a product behaviour nobody wants. A test constructs a model
+that returns only the user's history and asserts it scores exactly zero.
+
+We rank the full catalogue rather than sampling $100$ negatives per user.
+Sampled-negative evaluation is common but is known to produce rankings of
+methods that disagree with the full-catalogue result~\cite{krichene2020}.
+
+\subsection{Metrics}
+
+With exactly one relevant item $i^{*}_u$ per evaluated user and
+$\mathrm{rank}_u \in \{1, \dots, |C_u|\}$ its position in the predicted list,
+the cut-off metrics over the evaluated user set $\Uset_{\text{eval}}$ are:
+
+\begin{align}
+  \mathrm{NDCG@}K &= \frac{1}{|\Uset_{\text{eval}}|} \sum_{u}
+    \frac{\mathbb{1}[\mathrm{rank}_u \leq K]}{\log_2(\mathrm{rank}_u + 1)} ,
+    \label{eq:ndcg} \\[0.3em]
+  \mathrm{Recall@}K &= \frac{1}{|\Uset_{\text{eval}}|} \sum_{u}
+    \mathbb{1}[\mathrm{rank}_u \leq K] , \\[0.3em]
+  \mathrm{MRR@}K &= \frac{1}{|\Uset_{\text{eval}}|} \sum_{u}
+    \frac{\mathbb{1}[\mathrm{rank}_u \leq K]}{\mathrm{rank}_u} , \\[0.3em]
+  \mathrm{Coverage@}K &= \frac{1}{|\Iset|}
+    \Big\lvert \bigcup_{u \in \Uset_{\text{eval}}} \mathrm{top}_K(u) \Big\rvert .
+\end{align}
+
+Equation~\ref{eq:ndcg} uses the general NDCG definition specialised to a
+single relevant item, where the ideal DCG equals $1$ and the normalisation
+therefore disappears. Under this protocol Recall@$K$ coincides numerically
+with hit rate; both are reported so the table stays comparable with
+multi-positive projects.
+
+Coverage is reported because it is the business reason to leave a popularity
+list, but it must be read alongside accuracy: the random baseline attains
+coverage $1.0$ while being useless.
+
+\subsection{Model selection}
+
+All hyperparameters --- for the baselines as well as for BPR --- are selected
+by grid search on the \emph{validation} partition. The test partition is read
+once, to produce Table~\ref{tab:results}.
+
+This is stated explicitly because the alternative is both common and
+invisible in a results table. Selecting on test turns the reported number
+into an optimistically biased estimate whose gap from reality grows with the
+size of the grid.
+
+\subsection{Training/serving parity}
+
+Offline metrics are worthless if production serves a different ranking. The
+serving path precomputes top-$N$ lists into DynamoDB, and
+\texttt{tests/test\_features\_parity.py} asserts that the stored list for each
+user is element-wise identical to the list produced by the same fitted model
+during evaluation, that no served list intersects the user's history, and
+that the payload is JSON-serialisable --- NumPy scalars are a frequent and
+late-surfacing cause of rejected writes.

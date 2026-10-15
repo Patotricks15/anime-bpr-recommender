@@ -1,0 +1,127 @@
+\section{Methodology}
+\label{sec:methodology}
+
+\subsection{The BPR criterion}
+
+BPR starts from a per-user total order $>_u$ over items and assumes only that
+observed items are preferred to unobserved ones. The training set of triplets
+is
+\begin{equation}
+  D_{\Rset} = \{\, (u, i, j) \mid i \in \Iset_u^{+},\; j \in \Iset \setminus \Iset_u^{+} \,\} .
+\end{equation}
+
+Assuming independence across users and triplets, the posterior over
+parameters given the orderings is
+\begin{equation}
+  p(\Theta \mid >_u) \propto p(>_u \mid \Theta)\, p(\Theta) ,
+\end{equation}
+and with the pairwise likelihood modelled as
+$p(i >_u j \mid \Theta) = \sigma(\hat{x}_{uij})$ and a Gaussian prior
+$\Theta \sim \mathcal{N}(0, \lambda^{-1} I)$, maximizing the posterior is
+equivalent to maximizing
+
+\begin{equation}
+  \mathrm{BPR\text{-}Opt}
+  = \sum_{(u,i,j) \in D_{\Rset}} \ln \sigma(\hat{x}_{uij})
+    \;-\; \lambda \lVert \Theta \rVert^{2} ,
+  \label{eq:bpropt}
+\end{equation}
+
+where the pairwise score difference is
+\begin{equation}
+  \hat{x}_{uij} = \hat{x}_{ui} - \hat{x}_{uj} .
+\end{equation}
+
+\subsection{Matrix factorization scorer}
+
+We instantiate the scorer as biased matrix factorization:
+\begin{equation}
+  \hat{x}_{ui} = \pvec_u^{\top} \qvec_i + b_i
+  = \sum_{f=1}^{d} p_{uf} q_{if} + b_i .
+  \label{eq:mf}
+\end{equation}
+
+The user bias is deliberately absent. A per-user constant shifts every item
+score for that user by the same amount and therefore cannot change the
+induced ranking; including it would only add an unidentifiable parameter.
+The item bias survives because it \emph{does} reorder items, acting as a
+learned popularity prior. Note also that $b_i$ cancels from
+$\hat{x}_{uij}$ only when $i = j$, which never occurs.
+
+\subsection{Gradients}
+
+Write $\delta = \sigma(-\hat{x}_{uij})$, which follows from
+$\frac{\partial}{\partial z}\ln\sigma(z) = \sigma(-z)$. For a single triplet
+the gradients of Equation~\ref{eq:bpropt} are
+
+\begin{align}
+  \frac{\partial}{\partial \pvec_u} &= \delta\,(\qvec_i - \qvec_j) - \lambda_u \pvec_u ,\\
+  \frac{\partial}{\partial \qvec_i} &= \delta\,\pvec_u - \lambda_i \qvec_i ,\\
+  \frac{\partial}{\partial \qvec_j} &= -\delta\,\pvec_u - \lambda_i \qvec_j ,\\
+  \frac{\partial}{\partial b_i}     &= \delta - \lambda_b b_i ,\\
+  \frac{\partial}{\partial b_j}     &= -\delta - \lambda_b b_j .
+  \label{eq:grads}
+\end{align}
+
+The factor $\delta$ has a useful reading: it is large when the model
+currently ranks the triplet \emph{wrongly} and tends to zero once the pair is
+confidently ordered, so converged triplets stop contributing gradient.
+
+Parameters are updated by ascent with step size $\eta$ decayed
+geometrically per epoch, $\eta_{e} = \eta_0 \gamma^{e}$.
+
+\subsection{Vectorization and why it changed the conclusions}
+
+A literal reading of Equation~\ref{eq:grads} gives one update per triplet.
+In NumPy that costs roughly $70$ seconds for $40$ epochs on the fixture,
+which makes a hyperparameter grid search impractical --- and an untuned
+flagship model compared against baselines would have reproduced exactly the
+methodological failure criticised in Section~\ref{sec:introduction}.
+
+We therefore apply the same gradients to mini-batches of $B$ triplets. One
+subtlety makes this non-trivial: a user or item may appear several times
+within a batch, and NumPy's fancy-indexed assignment
+\texttt{A[idx] += v} keeps only the \emph{last} write for duplicated indices,
+silently discarding gradients. We use \texttt{np.add.at}, which accumulates.
+The resulting implementation runs the same $40$ epochs in $2.3$ seconds, a
+$\sim 30\times$ speed-up, which is what made the grid search in
+Section~\ref{sec:results} affordable.
+
+\subsection{Negative sampling}
+
+For each positive $(u,i)$ the sampler draws $j$ uniformly from
+$\Iset \setminus \Iset_u^{+}$. Rejection sampling is the natural approach,
+but testing membership against a per-user Python set inside the training loop
+reintroduces the interpreter overhead that vectorization removed, and a dense
+$m \times n$ boolean mask would need roughly $876$\,MB on the full dataset.
+
+We instead encode each observed pair as a single integer key
+\begin{equation}
+  \kappa(u,i) = u \cdot n + i ,
+\end{equation}
+store the sorted key array, and test candidate membership with a vectorized
+binary search. Memory is $O(|\Rset|)$ rather than $O(mn)$, and collisions are
+resampled for a bounded number of rounds. A test asserts zero false negatives
+across $340{,}000$ draws.
+
+\subsection{Baselines}
+
+\paragraph{Most-popular.} Ranks all users by the same global interaction
+count. It is non-personalised by construction and serves as the floor that
+any personalised model must clear.
+
+\paragraph{Item-$k$NN.} Cosine similarity between binary item vectors,
+\begin{equation}
+  s_{ij} = \frac{\lvert \Uset_i^{+} \cap \Uset_j^{+} \rvert}
+                {\sqrt{\lvert \Uset_i^{+} \rvert}\sqrt{\lvert \Uset_j^{+} \rvert}} ,
+\end{equation}
+truncated to the $k$ nearest neighbours per item, with user score
+\begin{equation}
+  \hat{x}_{ui} = \sum_{j \in \Iset_u^{+}} s_{ij} .
+\end{equation}
+This is the method most Kaggle notebooks for this dataset actually use, so it
+is the bar that justifies the project.
+
+\paragraph{Random.} A seeded permutation per user. It calibrates the metric
+scale and, with full catalogue coverage, demonstrates that coverage alone is
+not a quality signal.

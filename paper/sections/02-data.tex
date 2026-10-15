@@ -1,0 +1,77 @@
+\section{Data}
+\label{sec:data}
+
+\subsection{Source}
+
+The dataset is the Kaggle \emph{Anime Recommendations Database}, containing
+approximately $73{,}000$ users, $12{,}000$ titles and $7.8$ million ratings.
+Each row is a triple \texttt{(user\_id, anime\_id, rating)} where the rating
+is an integer in $[1,10]$, or the sentinel $-1$ meaning the user watched the
+title but did not rate it.
+
+The dataset is not redistributed with the repository. A generator produces a
+synthetic fixture with the same schema, latent taste clusters and a Pareto
+popularity distribution, so that the full pipeline and its tests run without
+credentials. All numbers in this report are computed on the fixture; the
+qualitative conclusions are what transfer, not the absolute values.
+
+\subsection{From ratings to implicit feedback}
+
+We map explicit ratings to implicit positives:
+\begin{equation}
+  (u,i) \in \Rset
+  \iff
+  r_{ui} = -1 \;\;\text{or}\;\; r_{ui} \geq 6 .
+  \label{eq:positive}
+\end{equation}
+
+Two decisions in Equation~\ref{eq:positive} deserve justification.
+
+\paragraph{The sentinel is a positive.} A user who watched a title without
+rating it has revealed consumption, which is exactly the signal BPR models.
+Discarding these rows would throw away the majority of the interaction data.
+
+\paragraph{Low ratings are dropped, not treated as negatives.} A rating of $2$
+is evidence of \emph{dislike}, which is strictly more information than the
+``unobserved'' state BPR assumes for the sampled item $j$. Placing a
+known-disliked item into the negative pool would be defensible; placing it
+into the positive pool would not. We drop these rows because the sampler
+draws negatives from the complement of $\Iset_u^{+}$, and a disliked item
+correctly belongs there by default.
+
+\subsection{Core filtering}
+
+Users and items with very few interactions carry almost no collaborative
+signal and inflate the catalogue over which ranking metrics are computed. We
+apply a $k$-core filter with $k = 5$ on both sides.
+
+The filter is applied \emph{iteratively}. Removing low-activity items reduces
+user interaction counts, which can push a previously qualifying user below the
+threshold; a single pass would leave the stated invariant violated. The loop
+runs until a fixed point, so the output genuinely satisfies
+\begin{equation}
+  |\Iset_u^{+}| \geq k \;\;\forall u \in \Uset
+  \qquad\text{and}\qquad
+  |\Uset_i^{+}| \geq k \;\;\forall i \in \Iset .
+\end{equation}
+
+\subsection{Temporal ordering and its limitation}
+
+The raw dataset carries \textbf{no timestamps}. This is a real constraint and
+we state it plainly rather than inventing one. Point-in-time feature
+computation requires an ordering, so we derive a per-user sequence index
+
+\begin{equation}
+  t_{ui} = \text{position of } i \text{ within the rows of } u
+  \quad\text{(file order)} ,
+\end{equation}
+
+and treat it as a weak proxy for chronology.
+
+This proxy is adequate for \emph{enforcing} the leakage discipline --- the
+machinery that forbids a feature from reading beyond a cut-off is exercised
+and tested regardless of whether the cut-off is a true timestamp. It is
+\emph{not} adequate for claiming that the evaluation reproduces a real
+production split. On a dataset with genuine timestamps, the same code path
+takes the timestamp column instead, and the synthetic fixture carries real
+timestamps precisely so that the point-in-time tests exercise that path.

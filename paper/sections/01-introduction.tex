@@ -1,0 +1,54 @@
+\section{Introduction}
+\label{sec:introduction}
+
+Recommendation from implicit feedback differs from rating prediction in a way
+that is easy to state and easy to get wrong. We never observe a negative
+signal. A title a user has not watched may be a title they would dislike, or
+simply one they have not encountered. Optimizing a squared error against a
+zero-filled matrix therefore encodes an assumption that is false by
+construction: that absence of interaction means dislike.
+
+Bayesian Personalized Ranking~\cite{rendle2009bpr} replaces that assumption
+with a weaker and more defensible one. Rather than predicting an absolute
+score, it assumes only that an observed item is preferred to an unobserved
+one, and optimizes the probability of that \emph{pairwise} ordering. The
+learning signal is a triplet $(u, i, j)$ where $i$ was consumed and $j$ was
+not, and the objective rewards $\hat{x}_{ui} > \hat{x}_{uj}$.
+
+\subsection{Scope and claims}
+
+This report accompanies a working repository rather than a novel method. The
+claims we make are:
+
+\begin{enumerate}
+  \item The pipeline is leakage-free. Every aggregate feature is computed
+        point-in-time, and this is enforced by tests that inject a future
+        event and assert no feature changes (Section~\ref{sec:features}).
+  \item The reported numbers are honest. Hyperparameters for \emph{every}
+        model, baselines included, were selected on a validation partition;
+        the test partition was read once (Section~\ref{sec:evaluation}).
+  \item The served ranking equals the evaluated ranking. Training/serving
+        skew is asserted away rather than assumed away
+        (Section~\ref{sec:evaluation}).
+\end{enumerate}
+
+We explicitly do \emph{not} claim that BPR is the best model for this dataset.
+Section~\ref{sec:results} shows it is not.
+
+\subsection{Why the negative result is kept}
+
+Dacrema et al.~\cite{dacrema2019} reproduced eighteen neural recommendation
+papers and found that most were beaten by well-tuned non-neural baselines,
+largely because the baselines in the original papers had not been tuned at
+all. The cheapest way to produce a flattering result for a flagship model is
+to compare it against an untuned competitor. We tune the baselines on the same
+grid budget as the flagship model, and report the outcome as measured.
+
+\subsection{Repository}
+
+The implementation, infrastructure, and the scripts that generate every table
+in this document are available in the accompanying repository. The results
+table (Table~\ref{tab:results}) is emitted by
+\texttt{scripts/export\_results\_table.py} and the feature catalogue
+(Table~\ref{tab:features}) by \texttt{scripts/export\_feature\_tables.py},
+so the document cannot drift away from the code.
