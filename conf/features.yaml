@@ -1,0 +1,83 @@
+# Declarative feature specification.
+#
+# This file is the single source of truth consumed by both the training job and
+# the serving path. The registry validates that every declared feature has an
+# implementation and that every implementation is declared.
+#
+# fit_on: train_only  -> statistics may only be computed on the train partition
+# point_in_time: true -> only interactions strictly before the cut-off count
+
+version: 1
+
+features:
+  - name: user_activity_count
+    family: interaction
+    dtype: float32
+    transform: user_activity_count
+    params: {}
+    fit_on: train_only
+    point_in_time: true
+    fill: {strategy: constant, value: 0.0}
+    rationale: >
+      Separates heavy watchers from casual users. Drives confidence weighting
+      and explains why sparse users need the popularity fallback.
+
+  - name: user_rating_mean
+    family: interaction
+    dtype: float32
+    transform: user_rating_mean
+    params: {unrated_sentinel: -1}
+    fit_on: train_only
+    point_in_time: true
+    fill: {strategy: global_mean}
+    rationale: >
+      Captures user leniency so a score of 7 is read relative to the user's own
+      scale rather than an absolute threshold.
+
+  - name: item_popularity_rank
+    family: item
+    dtype: float32
+    transform: item_popularity_rank
+    params: {normalize: true}
+    fit_on: train_only
+    point_in_time: true
+    fill: {strategy: constant, value: 1.0}
+    rationale: >
+      Popularity prior used by the most-popular baseline and as the cold-start
+      fallback ordering for users with no training history.
+
+  - name: item_member_count
+    family: item
+    dtype: float32
+    transform: item_member_count
+    params: {log_transform: true}
+    fit_on: catalogue
+    point_in_time: false
+    fill: {strategy: constant, value: 0.0}
+    rationale: >
+      Catalogue-side audience size. Known before any interaction exists, so it
+      is safe for cold-start items and is not subject to the train-only rule.
+
+  - name: item_genre_tokens
+    family: text
+    dtype: object
+    transform: item_genre_tokens
+    params: {separator: ", "}
+    fit_on: catalogue
+    point_in_time: false
+    fill: {strategy: constant, value: ""}
+    rationale: >
+      Content signal that allows unseen titles to be scored by genre overlap
+      instead of being excluded from recommendation entirely.
+
+  - name: user_genre_affinity
+    family: interaction
+    dtype: object
+    transform: user_genre_affinity
+    params: {decay_lambda: 0.08, top_k: 5}
+    fit_on: train_only
+    point_in_time: true
+    fill: {strategy: constant, value: ""}
+    rationale: >
+      Time-decayed taste profile over genres. Recent watches matter more than
+      old ones, so interest fades rather than accumulating forever.
