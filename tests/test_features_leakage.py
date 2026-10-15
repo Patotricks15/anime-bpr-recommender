@@ -132,6 +132,39 @@ def test_no_duplicate_interactions_before_splitting(interactions) -> None:
     assert not frame.duplicated(subset=["user_index", "item_index"]).any()
 
 
+def test_shuffled_labels_destroy_ranking_quality(split, interactions) -> None:
+    """A model trained on shuffled item assignments must not beat random.
+
+    This catches leakage that survives the structural checks: if performance
+    stayed high after destroying the user-item association, a feature would be
+    carrying the answer.
+    """
+    from recommender.evaluation import ndcg_at_k
+    from recommender.models import BPRRecommender
+
+    rng = np.random.default_rng(0)
+    shuffled = split.train.copy()
+    shuffled["item_index"] = rng.permutation(shuffled["item_index"].to_numpy())
+
+    broken_split = type(split)(
+        train=shuffled,
+        validation=split.validation,
+        test=split.test,
+        n_users=split.n_users,
+        n_items=split.n_items,
+    )
+
+    model = BPRRecommender(n_factors=8, n_epochs=3, random_state=0)
+    model.fit(broken_split)
+
+    score = ndcg_at_k(model, broken_split, k=10)
+    random_baseline = 10 / split.n_items
+
+    assert score < max(0.05, random_baseline * 6), (
+        f"NDCG@10 stayed at {score:.4f} after shuffling labels; a feature is leaking"
+    )
+
+
 @pytest.mark.parametrize("min_train", [3, 5])
 def test_users_without_history_are_not_evaluated(interactions, min_train: int) -> None:
     """Evaluating users with no training history would measure nothing."""
