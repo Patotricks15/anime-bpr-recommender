@@ -1,0 +1,82 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{xcolor}
+
+\geometry{margin=2.5cm}
+\hypersetup{colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black}
+
+\newcommand{\useritem}{(u,i)}
+\newcommand{\Rset}{\mathcal{S}}
+\newcommand{\Uset}{\mathcal{U}}
+\newcommand{\Iset}{\mathcal{I}}
+\newcommand{\pvec}{\mathbf{p}}
+\newcommand{\qvec}{\mathbf{q}}
+
+\title{\textbf{Bayesian Personalized Ranking for Anime Recommendation}\\[0.4em]
+\large A reproducible implicit-feedback pipeline with point-in-time features\\
+and an honest comparison against tuned neighbourhood baselines}
+
+\author{Patrick Oliveira}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We implement Bayesian Personalized Ranking (BPR) matrix factorization for
+top-$N$ anime recommendation from implicit feedback, and benchmark it against
+most-popular, item-$k$NN and random baselines under a leave-last-one-out
+protocol. The contribution of this report is methodological rather than
+algorithmic: every aggregate feature is computed \emph{point-in-time}, all
+hyperparameters are selected on a validation partition that is disjoint from
+the test partition, and the served ranking is asserted to be identical to the
+ranking that was scored offline. Our headline result is negative for the
+flagship model: a properly tuned item-$k$NN attains NDCG@10 of $0.1305$ versus
+$0.1248$ for tuned BPR. We report this rather than tuning until the preferred
+method wins, and we analyse the data regime that explains it.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Notation}
+\label{sec:notation}
+
+Let $\Uset$ be the set of users and $\Iset$ the set of items, with
+$|\Uset| = m$ and $|\Iset| = n$. Implicit feedback is the set of observed
+positive interactions
+\begin{equation}
+  \Rset \subseteq \Uset \times \Iset ,
+\end{equation}
+and $\Iset_u^{+} = \{\, i \in \Iset : (u,i) \in \Rset \,\}$ denotes the items
+consumed by user $u$. A model produces a score $\hat{x}_{ui} \in \mathbb{R}$
+used only for ranking; its absolute value carries no meaning.
+
+Latent factors are written $\pvec_u \in \mathbb{R}^{d}$ for users and
+$\qvec_i \in \mathbb{R}^{d}$ for items, collected in matrices
+$P \in \mathbb{R}^{m \times d}$ and $Q \in \mathbb{R}^{n \times d}$. The full
+parameter set is $\Theta = \{P, Q, \mathbf{b}\}$ with item biases
+$\mathbf{b} \in \mathbb{R}^{n}$. The logistic function is
+$\sigma(z) = (1 + e^{-z})^{-1}$.
+
+\input{sections/01-introduction}
+\input{sections/02-data}
+\input{sections/03-feature-engineering}
+\input{sections/04-methodology}
+\input{sections/05-evaluation}
+\input{sections/06-results}
+\input{sections/07-conclusion}
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}

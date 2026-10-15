@@ -1,0 +1,88 @@
+\section{Results}
+\label{sec:results}
+
+\input{tables/results}
+
+\subsection{Reading the table}
+
+Both personalised models clear the most-popular baseline by a wide margin,
+and all three clear random by roughly an order of magnitude, so the pipeline
+is learning genuine collaborative structure.
+
+The flagship model, however, loses. Tuned item-$k$NN reaches NDCG@10 of
+$0.1305$ against $0.1248$ for tuned BPR, a relative gap of about $4.6\%$ in
+favour of the baseline. Recall@10 and MRR@10 order the two models the same
+way, so the result is not an artifact of a single metric's discount function.
+
+\subsection{Hyperparameter search}
+
+The BPR grid covered $d \in \{16, 32, 64, 128\}$,
+$\eta_0 \in \{0.02, 0.05, 0.1, 0.2\}$,
+$\lambda \in \{0.005, 0.02, 0.05, 0.1, 0.2\}$ and epoch budgets from $20$ to
+$200$, selected on validation NDCG@10. The optimum sits at $d = 32$,
+$\eta_0 = 0.2$, $\lambda = 0.05$.
+
+Two features of the search are worth recording. First, validation performance
+is \emph{non-monotonic} in the epoch budget: it peaks and then declines while
+the training objective keeps improving, which is overfitting of the pairwise
+criterion rather than of a reconstruction error. Second, performance is far
+more sensitive to $\lambda$ than to $d$ --- the swing across the
+regularization axis is roughly $0.05$ NDCG, against roughly $0.005$ across
+the factor axis. The item-$k$NN neighbourhood size was swept over
+$k \in \{10, 20, 50, 100, 200, |\Iset|\}$ and is remarkably flat, varying by
+under $0.004$ NDCG across the entire range.
+
+That flatness is itself informative: the baseline is near-optimal almost
+regardless of its one hyperparameter, while BPR requires a search to become
+competitive at all.
+
+\subsection{Why the baseline wins here}
+
+The result is consistent with the data regime rather than with a defect in
+the implementation, and three observations support that reading.
+
+\paragraph{Scale.} Matrix factorization amortises a shared low-rank structure
+across many observations. The evaluated fixture has $\sim 900$ users and
+$320$ items. Repeating the comparison at roughly five times the scale
+($\sim 5{,}000$ users, $1{,}500$ items, $95{,}000$ training interactions) did
+not reverse the ordering, but it did compress the gap, which is the direction
+the scale argument predicts.
+
+\paragraph{Density.} The $k$-core filter leaves a comparatively dense
+interaction matrix. Co-occurrence counts are therefore well estimated
+directly, and the cosine similarities that item-$k$NN consumes are low
+variance. Neighbourhood methods are strongest exactly in this regime.
+
+\paragraph{Intrinsic rank.} The latent structure is a small number of taste
+clusters crossed with a popularity prior. Item-$k$NN represents
+within-cluster co-consumption essentially exactly, whereas BPR must recover
+the same structure through a rank-$d$ approximation fitted by sampled SGD.
+There is little headroom above a model that already captures the generating
+process.
+
+\subsection{Coverage}
+
+BPR covers $39\%$ of the catalogue against $50\%$ for item-$k$NN and $7.5\%$
+for most-popular. The popularity baseline's figure quantifies the
+concentration problem that motivates personalisation: it is structurally
+incapable of surfacing more than a handful of titles. Random attains $100\%$
+coverage with near-zero accuracy, which is the reminder that coverage is a
+constraint to satisfy, not an objective to maximise.
+
+\subsection{Threats to validity}
+
+\begin{enumerate}
+  \item \textbf{Synthetic fixture.} The reported numbers come from generated
+        data. The generating process was not chosen to favour either model,
+        but it is simpler than reality, and simple structure favours the
+        method with the stronger inductive bias.
+  \item \textbf{Proxy ordering.} The split uses file order as a chronology
+        proxy (Section~\ref{sec:data}). A true temporal split would be
+        harder, and would likely lower all reported numbers.
+  \item \textbf{Single seed.} Metrics are reported for one seed. The gap
+        between BPR and item-$k$NN is small enough that a confidence interval
+        over seeds would be needed before calling it decisive.
+  \item \textbf{Offline only.} NDCG on held-out interactions is a proxy for
+        user satisfaction and cannot capture novelty, diversity or
+        presentation effects.
+\end{enumerate}

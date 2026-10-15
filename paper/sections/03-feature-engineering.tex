@@ -1,0 +1,100 @@
+\section{Feature engineering}
+\label{sec:features}
+
+Features are declared in \texttt{conf/features.yaml} and executed by a
+registry-backed pipeline. The YAML is the single source of truth: a startup
+check validates the mapping between declared features and implemented
+transforms in \emph{both} directions, so a feature cannot be declared without
+an implementation, nor can an implementation silently linger after its
+declaration is removed.
+
+\input{tables/features}
+
+\subsection{Rationale}
+
+\input{tables/feature-rationale}
+
+\subsection{Point-in-time computation}
+
+Every aggregate is evaluated against a cut-off $\tau$ using a \emph{strict}
+inequality:
+\begin{equation}
+  \phi(u, \tau) = f\big(\{\, (u,i,t) \in \Rset : t < \tau \,\}\big) .
+  \label{eq:pit}
+\end{equation}
+
+The strictness matters. With $t \leq \tau$, the interaction being predicted
+contributes to its own feature value, and the model receives a trace of the
+label. This is the most common leakage bug in recommender pipelines because
+it produces excellent offline metrics and no error message.
+
+Concretely, user activity count and the rating mean are
+\begin{align}
+  \mathrm{activity}(u,\tau) &= \big|\{\, (u,i,t) \in \Rset : t < \tau \,\}\big| ,\\
+  \overline{r}(u,\tau)      &= \frac{1}{\mathrm{activity}(u,\tau)}
+                               \sum_{(u,i,t) \in \Rset,\, t < \tau} r_{ui} ,
+\end{align}
+with $\overline{r}(u,\tau)$ defined as a configured fill value when the
+denominator is zero.
+
+Genre affinity is a time-decayed profile over the genre vocabulary $G$. For
+genre $g$,
+\begin{equation}
+  \mathrm{aff}(u, g, \tau)
+  = \frac{\sum_{(u,i,t) \in \Rset,\, t<\tau} \lambda^{\,\tau - t}\, \mathbb{1}[g \in G_i]}
+         {\sum_{(u,i,t) \in \Rset,\, t<\tau} \lambda^{\,\tau - t}} ,
+  \qquad \lambda \in (0, 1] ,
+  \label{eq:affinity}
+\end{equation}
+so that recent consumption dominates a user's represented taste.
+
+Item popularity is a rank, not a raw count:
+\begin{equation}
+  \mathrm{poprank}(i, \tau) = \big|\{\, i' \in \Iset : c_{i'}(\tau) > c_{i}(\tau) \,\}\big| + 1 ,
+  \qquad
+  c_i(\tau) = \big|\{\,(u,i,t) \in \Rset : t < \tau\,\}\big| .
+\end{equation}
+Ranking is deliberate: raw counts follow a Pareto distribution whose scale
+shifts as the catalogue grows, whereas the rank is stable under that growth.
+
+\subsection{Fitting discipline}
+
+Statistics that require fitting --- popularity tables, encodings, normalizer
+parameters --- are fitted on the \emph{training partition only} and then
+applied to validation and test. Fitting on the full dataset is leakage even
+when the per-row computation respects the cut-off, because the fitted
+parameters summarise the held-out rows.
+
+\subsection{Leakage controls}
+
+Three classes of test enforce the above, in
+\texttt{tests/test\_features\_leakage.py}:
+
+\begin{enumerate}
+  \item \textbf{Future-event injection.} An interaction is appended
+        \emph{after} the cut-off and every feature is recomputed. Any change
+        in any value fails the test. This is the direct executable form of
+        Equation~\ref{eq:pit}.
+  \item \textbf{Fit-partition isolation.} Fitted tables computed on the
+        training partition are asserted identical whether or not the
+        validation and test rows are present in the input.
+  \item \textbf{Label destruction.} Item assignments in the training
+        partition are randomly permuted, destroying the user--item
+        association while preserving every marginal distribution. A model
+        retrained on the corrupted data must collapse towards the random
+        baseline. If it does not, some feature is carrying the answer.
+\end{enumerate}
+
+The third test is the one that catches leakage the structural checks miss,
+because it makes no assumption about \emph{which} feature is responsible.
+
+\subsection{A dtype bug found by these tests}
+
+The future-event injection test initially failed with an index dtype mismatch
+(\texttt{int32} versus \texttt{int64}) rather than a value difference. The
+cause was that \texttt{pandas} promotes index dtypes differently depending on
+how a frame was assembled, so two logically identical feature frames compared
+unequal. The fix normalises every user-keyed series to an \texttt{int64}
+index at construction. We record it here because it is a genuine robustness
+defect that would have surfaced as a confusing production failure, not a
+test artifact that was patched away.
