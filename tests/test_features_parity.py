@@ -129,7 +129,7 @@ def test_response_serialises_dynamodb_decimals() -> None:
 
     Regression test: this only reproduces on the *read* path, so the
     pre-write payload checks above cannot catch it. It was found by invoking
-    the deployed Lambda against LocalStack, not by the unit suite.
+    the deployed Lambda against Floci, not by the unit suite.
     """
     body = {
         "user_id": "1",
